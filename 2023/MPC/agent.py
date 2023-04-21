@@ -410,16 +410,18 @@ def vehicle_model(v0):
     u = vertcat(acc, steer)
 
     # dynamic function
+    wb = 2.7
+
     if v0 < 0.1:
         ode = vertcat(v * cos(phi),
                       v * sin(phi),
                       acc,
                       steer)
     else:
-        ode = vertcat(v * cos(phi),
-                      v * sin(phi),
+        ode = vertcat(v * cos(phi) - wb/2 * sin(phi) * v * tan(steer) / wb,
+                      v * sin(phi) + wb/2 * cos(phi) * v * np.tan(steer) / wb,
                       acc,
-                      v *tan(steer)/2.3)
+                      v * tan(steer)/wb)
 
     # define integrator
     options = {'tf': DT, 'simplify': True, 'number_of_finite_elements': 2}
