@@ -13,16 +13,16 @@ from copy import deepcopy
 DT = 0.1                        # time step size
 N = 10                          # number of time steps
 
-A_MAX = 3                       # maximum acceleration
+A_MAX = 6                       # maximum acceleration
 A_MIN = -6.17                   # maximum deceleration
 S_MAX = np.deg2rad(40.0)        # maximum steering
-V_MAX = 15                      # maximum velocity
+V_MAX = 20                      # maximum velocity
 
 R = np.diag([0.000, 100.0])      # input cost matrix, penalty for inputs - [accel, steer]
-RD = np.diag([0.000, 10000.0])    # input difference cost matrix, penalty for change of inputs - [accel, steer]
+RD = np.diag([0.000, 1000.0])    # input difference cost matrix, penalty for change of inputs - [accel, steer]
 W = np.array([[13.5, 13.5, 1000, 13]])  # weights for difference to reference trajectory - [x, y, v, phi]
 
-VISUALIZATION = True
+VISUALIZATION = False
 
 class Agent():
     def __init__(self, vehicle=None):
@@ -68,8 +68,13 @@ class Agent():
         # assemble initial state
         x0 = get_initial_state(transform, vel)
 
+        # switch to lower trajectory in a hard curve
+        v_max = V_MAX
+        if is_hard_curve(left, right):
+            v_max = 15
+
         # compute reference trajectory
-        ref_traj = reference_trajectory(left, right, x0, con)
+        ref_traj = reference_trajectory(left, right, x0, v_max, con)
 
         # plan trajectory
         x, u = optimal_control_problem(x0, ref_traj, con)
@@ -93,6 +98,9 @@ class Agent():
         else:
             control.throttle = 0
             control.brake = -acc
+
+        #control.manual_gear_shift = False
+        #control.gear = 2
 
         # visualize planned trajectory
         if VISUALIZATION:
@@ -149,7 +157,30 @@ def get_initial_state(transform, vel):
 
     return x0
 
-def reference_trajectory(left, right, x0, con):
+def is_hard_curve(left, right):
+    """check if the track ahead represents a hard curve"""
+
+    # compute center trajectory
+    center = 0.5 * (left + right)
+
+    diff = center[1, :] - center[0, :]
+    orientationStart = np.arctan2(diff[1], diff[0])
+    orientation = []
+
+    for i in range(1, center.shape[0]):
+        diff = center[i-1, :] - center[i, :]
+        angle = np.arctan2(diff[1], diff[0]) - orientationStart
+        orientation.append(np.mod(angle + np.pi, 2 * np.pi) - np.pi)
+        #orientation.append(np.sign(angle) * np.mod(angle, np.pi))
+
+    do = abs(np.diff(np.asarray(orientation)))
+
+    if max(do[do < 6]) > 0.15:
+        return True
+
+    return False
+
+def reference_trajectory(left, right, x0, v_max, con):
     """compute the reference trajectory from the left and right bounds of the road"""
 
     # compute center trajectory
@@ -178,7 +209,7 @@ def reference_trajectory(left, right, x0, con):
 
     for i in range(N):
         x[i+1] = x[i] + v[i]*DT + 0.5*a[i]*DT
-        v[i+1] = min(v[i] + a[i]*DT, V_MAX)
+        v[i+1] = min(v[i] + a[i]*DT, v_max)
 
     # find closest point on the reference trajectory
     ind = np.argmin(np.sum((center - x0[0:2])**2, axis=1))
@@ -206,7 +237,8 @@ def reference_trajectory(left, right, x0, con):
         orientation[0, i+1] = np.arctan2(diff[1], diff[0])
 
     tmp = orientation - x0[3]
-    orientation = np.sign(tmp) * np.mod(np.abs(tmp), np.pi)
+    orientation = x0[3] + np.mod(tmp + np.pi, 2*np.pi) - np.pi
+    #orientation = np.sign(tmp) * np.mod(np.abs(tmp), np.pi)
 
     ref_traj = np.concatenate((ref_traj, orientation))
 
